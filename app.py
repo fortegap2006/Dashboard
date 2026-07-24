@@ -2,10 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as _go
 
 # ==========================================
-# CONFIGURACIÓN DE LA PÁGINA STREAMLIT
+# CONFIGURACIÓN DE LA PÁGINA
 # ==========================================
 st.set_page_config(
     page_title="Dashboard de Apuestas Deportivas",
@@ -17,203 +16,183 @@ st.set_page_config(
 # 1. GENERACIÓN DE DATOS SINTÉTICOS
 # ==========================================
 @st.cache_data
-def generar_datos_sinteticos(n_registros=1000):
+def cargar_datos_sinteticos(n_registros=500):
     np.random.seed(42)
     
-    deportes = ['Fútbol', 'Baloncesto', 'Tenis', 'Béisbol', 'MMA']
-    casas_apuesta = ['Bet365', 'Codere', 'Bwin', 'Betsson', '1xBet']
-    tipos_apuesta = ['Ganador Local', 'Ganador Visitante', 'Empate', 'Más/Menos Goles', 'Hándicap']
+    deportes = ['Fútbol', 'Baloncesto', 'Tenis', 'Béisbol', 'E-Sports']
+    casas_apuesta = ['Bet365', 'Betplay', 'Codere', 'Rushbet', 'Bwin']
+    tipos_apuesta = ['Ganador Local', 'Empate', 'Ganador Visitante', 'Más/Menos Puntos', 'Hándicap']
     estados = ['Ganada', 'Perdida', 'Pendiente']
-    
-    fechas = pd.date_range(start='2023-01-01', periods=n_registros, freq='H')
+
+    fechas = pd.date_range(start="2024-01-01", periods=n_registros, freq="D")
     
     data = {
-        'ID_Apuesta': [f"APT-{1000 + i}" for i in range(n_registros)],
-        'Fecha': np.random.choice(fechas, n_registros),
-        'Deporte': np.random.choice(deportes, n_registros, p=[0.4, 0.25, 0.15, 0.1, 0.1]),
-        'Casa_Apuesta': np.random.choice(casas_apuesta, n_registros),
-        'Tipo_Apuesta': np.random.choice(tipos_apuesta, n_registros),
-        'Monto_Apostado': np.round(np.random.exponential(scale=50, size=n_registros) + 5, 2),
+        'ID_Apuesta': [f"APT-{1000+i}" for i in range(n_registros)],
+        'Fecha': np.random.choice(fechas, size=n_registros),
+        'Deporte': np.random.choice(deportes, size=n_registros, p=[0.4, 0.25, 0.15, 0.1, 0.1]),
+        'Casa_Apuestas': np.random.choice(casas_apuesta, size=n_registros),
+        'Tipo_Apuesta': np.random.choice(tipos_apuesta, size=n_registros),
+        'Monto_Apostado': np.round(np.random.exponential(scale=50, size=n_registros) + 5, 2), # Montos entre $5 y más
         'Cuota': np.round(np.random.uniform(1.2, 5.0, size=n_registros), 2),
-        'Estado': np.random.choice(estados, n_registros, p=[0.45, 0.50, 0.05])
+        'Estado': np.random.choice(estados, size=n_registros, p=[0.45, 0.45, 0.10])
     }
     
     df = pd.DataFrame(data)
     
-    # Calcular ganancia/pérdida
-    def calcular_ganancia(row):
+    # Calcular ganancia/pérdida neta hipotética
+    def calcular_retorno(row):
         if row['Estado'] == 'Ganada':
             return np.round((row['Monto_Apostado'] * row['Cuota']) - row['Monto_Apostado'], 2)
         elif row['Estado'] == 'Perdida':
             return -row['Monto_Apostado']
         else:
             return 0.0
-            
-    df['Ganancia_Neta'] = df.apply(calcular_ganancia, axis=1)
+
+    df['Ganancia_Neta'] = df.apply(calcular_retorno, axis=1)
     return df
 
-# Cargar datos
-df_raw = generar_datos_sinteticos()
+df_raw = cargar_datos_sinteticos()
 
 # ==========================================
-# 3. INTERACCIÓN DEL USUARIO (BARRA LATERAL)
+# 3. INTERACCIÓN DEL USUARIO (FILTROS)
 # ==========================================
-st.sidebar.title("🎛️ Filtros de Interacción")
+st.sidebar.header("🎯 Filtros de Interacción")
 
 # Filtro por Deporte
-deportes_seleccionados = st.sidebar.multiselect(
-    "Selecciona Deportes:",
-    options=df_raw['Deporte'].unique(),
-    default=df_raw['Deporte'].unique()
-)
+deportes_unicos = list(df_raw['Deporte'].unique())
+deportes_sel = st.sidebar.multiselect("Seleccionar Deporte(s):", deportes_unicos, default=deportes_unicos)
 
 # Filtro por Casa de Apuestas
-casas_seleccionadas = st.sidebar.multiselect(
-    "Selecciona Casas de Apuestas:",
-    options=df_raw['Casa_Apuesta'].unique(),
-    default=df_raw['Casa_Apuesta'].unique()
-)
+casas_unicas = list(df_raw['Casa_Apuestas'].unique())
+casas_sel = st.sidebar.multiselect("Seleccionar Casa de Apuestas:", casas_unicas, default=casas_unicas)
 
-# Filtro por Rango de Monto Apostado
-monto_min, monto_max = float(df_raw['Monto_Apostado'].min()), float(df_raw['Monto_Apostado'].max())
-rango_monto = st.sidebar.slider(
-    "Rango de Monto Apostado ($):",
-    min_value=monto_min,
-    max_value=monto_max,
-    value=(monto_min, monto_max)
-)
+# Filtro por Rango de Cuotas
+min_cuota, max_cuota = float(df_raw['Cuota'].min()), float(df_raw['Cuota'].max())
+rango_cuota = st.sidebar.slider("Rango de Cuota:", min_cuota, max_cuota, (min_cuota, max_cuota))
 
-# Aplicar Filtros al DataFrame
+# Aplicar filtros
 df_filtrado = df_raw[
-    (df_raw['Deporte'].isin(deportes_seleccionados)) &
-    (df_raw['Casa_Apuesta'].isin(casas_seleccionadas)) &
-    (df_raw['Monto_Apostado'].between(rango_monto[0], rango_monto[1]))
+    (df_raw['Deporte'].isin(deportes_sel)) &
+    (df_raw['Casa_Apuestas'].isin(casas_sel)) &
+    (df_raw['Cuota'] >= rango_cuota[0]) &
+    (df_raw['Cuota'] <= rango_cuota[1])
 ]
 
 # ==========================================
-# VISTA PRINCIPAL DE LA APLICACIÓN
+# ENCABEZADO Y KPI
 # ==========================================
-st.title("📊 Dashboard EDA - Apuestas Deportivas")
-st.markdown("Análisis exploratorio interactivo sobre un conjunto de datos sintéticos de apuestas.")
+st.title("⚽ Dashboard y EDA de Apuestas Deportivas")
+st.markdown("Plataforma interactiva para el análisis de rendimiento y estadísticas de apuestas.")
 
-# Pestañas de Navegación
-tab1, tab2, tab3, tab4 = st.tabs(["📁 Vista Previa y Filtros", "🔤 EDA Cualitativo", "🔢 EDA Cuantitativo", "📈 EDA Gráfico"])
+st.subheader("📌 Métricas Principales (KPIs)")
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
-# ------------------------------------------
-# TAB 1: DATOS Y RESUMEN GENERAL
-# ------------------------------------------
-with tab1:
-    st.subheader("Datos Filtrados")
-    st.markdown(f"Mostrando **{len(df_filtrado)}** de **{len(df_raw)}** registros.")
-    
-    # KPIs rápidos
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Apostado", f"${df_filtrado['Monto_Apostado'].sum():,.2f}")
-    col2.metric("Ganancia/Pérdida Neta", f"${df_filtrado['Ganancia_Neta'].sum():,.2f}")
-    col3.metric("Cuota Promedio", f"{df_filtrado['Cuota'].mean():.2f}")
-    
-    win_rate = (len(df_filtrado[df_filtrado['Estado'] == 'Ganada']) / len(df_filtrado) * 100) if len(df_filtrado) > 0 else 0
-    col4.metric("% Apuestas Ganadas", f"{win_rate:.1f}%")
-    
-    st.dataframe(df_filtrado, use_container_width=True)
+total_apostado = df_filtrado['Monto_Apostado'].sum()
+balance_total = df_filtrado['Ganancia_Neta'].sum()
+total_apuestas = len(df_filtrado)
+win_rate = (len(df_filtrado[df_filtrado['Estado']=='Ganada']) / total_apuestas * 100) if total_apuestas > 0 else 0
 
-# ------------------------------------------
-# TAB 2: EDA CUALITATIVO
-# ------------------------------------------
-with tab2:
-    st.subheader("Análisis Cualitativo (Variables Categóricas)")
-    
-    col_cat1, col_cat2 = st.columns(2)
-    
-    with col_cat1:
-        st.write("### Frecuencia por Deporte")
-        freq_deporte = df_filtrado['Deporte'].value_counts().reset_index()
-        freq_deporte.columns = ['Deporte', 'Frecuencia']
-        st.dataframe(freq_deporte, use_container_width=True)
-        
-        st.write("### Frecuencia por Estado de Apuesta")
-        freq_estado = df_filtrado['Estado'].value_counts().reset_index()
-        freq_estado.columns = ['Estado', 'Frecuencia']
-        st.dataframe(freq_estado, use_container_width=True)
+kpi1.metric("Total Apuestas", f"{total_apuestas}")
+kpi2.metric("Monto Apostado", f"${total_apostado:,.2f}")
+kpi3.metric("Balance / Ganancia Neta", f"${balance_total:,.2f}", delta=f"{balance_total:,.2f}")
+kpi4.metric("Tasa de Acierto (Win Rate)", f"{win_rate:.1f}%")
 
-    with col_cat2:
-        st.write("### Frecuencia por Casa de Apuesta")
-        freq_casa = df_filtrado['Casa_Apuesta'].value_counts().reset_index()
-        freq_casa.columns = ['Casa de Apuesta', 'Frecuencia']
-        st.dataframe(freq_casa, use_container_width=True)
+st.markdown("---")
 
-        st.write("### Frecuencia por Tipo de Apuesta")
-        freq_tipo = df_filtrado['Tipo_Apuesta'].value_counts().reset_index()
-        freq_tipo.columns = ['Tipo de Apuesta', 'Frecuencia']
-        st.dataframe(freq_tipo, use_container_width=True)
+# ==========================================
+# 2. ANÁLISIS EXPLORATORIO DE DATOS (EDA)
+# ==========================================
+tab_cuanti, tab_cuali, tab_graficos, tab_tabla = st.tabs([
+    "📊 Análisis Cuantitativo", 
+    "🏷️ Análisis Cualitativo", 
+    "📈 EDA Gráfico", 
+    "📄 Vista de Datos"
+])
 
-# ------------------------------------------
-# TAB 3: EDA CUANTITATIVO
-# ------------------------------------------
-with tab3:
-    st.subheader("Análisis Cuantitativo (Variables Numéricas)")
+# --- TAB 1: CUANTITATIVO ---
+with tab_cuanti:
+    st.header("Análisis Cuantitativo")
+    st.write("Estadísticas descriptivas de las variables numéricas:")
     
-    st.write("### Estadísticas Descriptivas Generales")
+    # Resumen numérico
     num_cols = ['Monto_Apostado', 'Cuota', 'Ganancia_Neta']
-    st.dataframe(df_filtrado[num_cols].describe().T, use_container_width=True)
-    
-    st.write("### Ganancia Neta por Deporte y Casa de Apuesta")
-    pivot_ganancia = df_filtrado.pivot_table(
-        index='Deporte', 
-        columns='Casa_Apuesta', 
-        values='Ganancia_Neta', 
-        aggfunc='sum', 
-        fill_value=0
-    )
-    st.dataframe(pivot_ganancia, use_container_width=True)
+    st.dataframe(df_filtrado[num_cols].describe().T)
 
-# ------------------------------------------
-# TAB 4: EDA GRÁFICO
-# ------------------------------------------
-with tab4:
-    st.subheader("Visualización Gráfica Interactiva")
+# --- TAB 2: CUALITATIVO ---
+with tab_cuali:
+    st.header("Análisis Cualitativo")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Distribución por Estado de Apuesta")
+        st.dataframe(df_filtrado['Estado'].value_counts().reset_index())
+        
+        st.subheader("Distribución por Deporte")
+        st.dataframe(df_filtrado['Deporte'].value_counts().reset_index())
+
+    with col2:
+        st.subheader("Distribución por Casa de Apuestas")
+        st.dataframe(df_filtrado['Casa_Apuestas'].value_counts().reset_index())
+
+# --- TAB 3: GRÁFICOS INTERACTIVOS ---
+with tab_graficos:
+    st.header("EDA Gráfico")
     
     col_g1, col_g2 = st.columns(2)
     
     with col_g1:
-        # Gráfico de Barras: Distribución por Deporte
-        fig_bar = px.bar(
+        # Gráfico de barras: Ganancia por Deporte
+        fig_deporte = px.bar(
             df_filtrado, 
             x='Deporte', 
-            color='Estado', 
-            title="Distribución de Apuestas por Deporte y Estado",
-            barmode='group',
-            color_discrete_sequence=px.colors.qualitative.Pastel
+            y='Ganancia_Neta', 
+            color='Estado',
+            title="Ganancia/Pérdida Neta por Deporte",
+            barmode='group'
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
-        
-        # Histogram de Montos Apostados
+        st.plotly_chart(fig_deporte, use_container_width=True)
+
+        # Histograma de Cuotas
         fig_hist = px.histogram(
             df_filtrado, 
-            x='Monto_Apostado', 
-            nbins=30, 
-            title="Distribución del Monto Apostado",
-            color_discrete_sequence=['#636EFA']
+            x='Cuota', 
+            nbins=20, 
+            title="Distribución de las Cuotas Apostadas",
+            color_discrete_sequence=['#3366cc']
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
     with col_g2:
-        # Gráfico de Dispersión: Cuota vs Monto Apostado
-        fig_scatter = px.scatter(
-            df_filtrado, 
-            x='Cuota', 
-            y='Ganancia_Neta', 
-            color='Estado',
-            hover_data=['ID_Apuesta', 'Deporte'],
-            title="Relación Cuota vs Ganancia Neta"
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-        
-        # Gráfico Torta: Proporción por Casa de Apuesta
+        # Pie Chart: Porcentaje de apuestas por Casa
         fig_pie = px.pie(
             df_filtrado, 
-            names='Casa_Apuesta', 
-            title="Proporción de Apuestas por Casa de Apuesta",
+            names='Casa_Apuestas', 
+            title="Proporción de Apuestas por Casa de Apuestas",
             hole=0.4
         )
         st.plotly_chart(fig_pie, use_container_width=True)
+
+        # Scatter plot: Monto vs Cuota
+        fig_scatter = px.scatter(
+            df_filtrado, 
+            x='Cuota', 
+            y='Monto_Apostado', 
+            color='Estado',
+            title="Relación Cuota vs. Monto Apostado",
+            size='Monto_Apostado'
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+
+# --- TAB 4: VER Y DESCARGAR DATOS ---
+with tab_tabla:
+    st.header("Explorador de Datos Filtrados")
+    st.dataframe(df_filtrado)
+    
+    # Botón para descargar los datos filtrados en CSV
+    csv = df_filtrado.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Descargar Datos Filtrados como CSV",
+        data=csv,
+        file_name='apuestas_deportivas_filtrado.csv',
+        mime='text/csv'
+    )
